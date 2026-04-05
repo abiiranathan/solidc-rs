@@ -187,7 +187,7 @@ fn example_read_all() -> Result<()> {
     drop(file); // Close the write handle
 
     // Read entire file
-    let file = File::open("example6.txt", "r")?;
+    let mut file = File::open("example6.txt", "r")?;
     let contents = file.read_all()?;
 
     println!("   Read {} bytes total", contents.len());

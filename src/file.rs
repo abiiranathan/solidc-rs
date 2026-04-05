@@ -2,13 +2,12 @@ use std::ffi::{CStr, CString};
 use std::fmt;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
-use std::ptr;
 use std::slice;
 
 use crate::ffi::{
-    file_close, file_copy, file_flush, file_get_size, file_lock, file_mmap, file_munmap, file_open,
-    file_pread, file_pwrite, file_read, file_readall, file_result_t, file_seek, file_t, file_tell,
-    file_truncate, file_unlock, file_write, file_write_string, filesize_tostring, get_file_size,
+    file_close, file_copy, file_flush, file_lock, file_mmap, file_munmap, file_open, file_pread,
+    file_pwrite, file_read, file_readall, file_result_t, file_seek, file_t, file_tell,
+    file_truncate, file_unlock, file_write, file_write_string, filesize_tostring,
 };
 
 /// Result type for file operations.
@@ -88,10 +87,7 @@ impl File {
             .map_err(|_| FileError::InvalidArgs)?;
         let mode_cstr = CString::new(mode).map_err(|_| FileError::InvalidArgs)?;
 
-        let mut inner = file_t {
-            stream: ptr::null_mut(),
-            native_handle: unsafe { std::mem::zeroed() },
-        };
+        let mut inner: file_t = unsafe { std::mem::zeroed() };
 
         let result = unsafe { file_open(&mut inner, path_cstr.as_ptr(), mode_cstr.as_ptr()) };
         Result::from(result)?;
@@ -114,12 +110,12 @@ impl File {
 
     /// Returns the size of the file in bytes.
     pub fn size(&self) -> Result<i64> {
-        let size = unsafe { file_get_size(&self.inner) };
-        if size < 0 {
-            Err(FileError::IoFailed)
-        } else {
-            Ok(size)
-        }
+        Ok(self.inner.attr.size as i64)
+    }
+
+    /// Returns the file attributes.
+    pub fn attributes(&self) -> &crate::ffi::FileAttributes {
+        &self.inner.attr
     }
 
     /// Truncates or extends the file to the specified length.
@@ -204,9 +200,9 @@ impl File {
     /// # Safety
     /// The underlying C function allocates memory that must be freed.
     /// This wrapper handles the deallocation properly.
-    pub fn read_all(&self) -> Result<Vec<u8>> {
+    pub fn read_all(&mut self) -> Result<Vec<u8>> {
         let mut size: usize = 0;
-        let ptr = unsafe { file_readall(&self.inner, &mut size as *mut _) };
+        let ptr = unsafe { file_readall(&mut self.inner, &mut size as *mut _) };
 
         if ptr.is_null() {
             return Err(FileError::MemoryFailed);
@@ -360,14 +356,9 @@ unsafe impl Sync for File {}
 
 /// Utility function to get file size by path without opening it.
 pub fn get_file_size_by_path<P: AsRef<Path>>(path: P) -> Result<i64> {
-    let path_cstr = CString::new(path.as_ref().to_string_lossy().as_bytes())
-        .map_err(|_| FileError::InvalidArgs)?;
-    let size = unsafe { get_file_size(path_cstr.as_ptr()) };
-    if size < 0 {
-        Err(FileError::IoFailed)
-    } else {
-        Ok(size)
-    }
+    let file = File::open(path, "r")?;
+    let size = file.size()?;
+    Ok(size)
 }
 
 /// Formats a file size as a human-readable string (e.g., "1.5 GB").
@@ -401,6 +392,37 @@ mod tests {
     fn test_file_size() {
         let size = get_file_size_by_path("/tmp/test_file.txt").unwrap();
         assert!(size >= 0);
+    }
+
+    #[test]
+    fn test_file_attributes() {
+        {
+            let mut f = File::open("/tmp/test_file_attrs.txt", "w").unwrap();
+            f.write(b"attr test").unwrap();
+        }
+        let file = File::open("/tmp/test_file_attrs.txt", "r").unwrap();
+        let size = file.size().unwrap();
+        assert!(size > 0, "File size should be > 0 after writing data");
+
+        // Check that attributes were populated by file_open
+        let attrs = file.attributes();
+        assert!(
+            attrs.attrs & 1 != 0,
+            "FATTR_FILE should be set for a regular file"
+        );
+        assert!(attrs.size > 0, "attr.size should match file size");
+    }
+
+    #[test]
+    fn test_file_read_all() {
+        let mut file = File::open("/tmp/test_file_readall.txt", "w+").unwrap();
+        let data = b"read_all test data";
+        file.write(data).unwrap();
+        file.flush().unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+
+        let contents = file.read_all().unwrap();
+        assert_eq!(&contents, data);
     }
 
     #[test]

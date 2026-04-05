@@ -1,15 +1,13 @@
 use std::ffi::{CStr, CString};
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::ptr;
 
 use crate::ffi::{
-    Directory, WalkDirCallback, WalkDirOption, dir_chdir, dir_close, dir_create, dir_list,
-    dir_list_with_callback, dir_next, dir_open, dir_remove, dir_rename, dir_size, dir_walk,
-    dir_walk_depth_first, filepath_absolute, filepath_basename, filepath_dirname,
-    filepath_expanduser, filepath_expanduser_buf, filepath_extension, filepath_join,
-    filepath_join_buf, filepath_makedirs, filepath_nameonly, filepath_remove, filepath_rename,
-    filepath_split, get_cwd, get_tempdir, is_dir as is_directory, is_file as is_a_file,
+    Directory, WalkDirOption, dir_chdir, dir_close, dir_create, dir_list, dir_next, dir_open,
+    dir_remove, dir_rename, dir_size, dir_walk, dir_walk_depth_first, filepath_absolute,
+    filepath_basename, filepath_dirname, filepath_expanduser, filepath_extension, filepath_join,
+    filepath_makedirs, filepath_nameonly, filepath_remove, filepath_rename, filepath_split,
+    get_cwd, get_tempdir, is_dir as is_directory, is_file as is_a_file,
     is_symlink as is_symbolic_link, make_tempdir, make_tempfile, path_exists, user_home_dir,
 };
 
@@ -232,38 +230,10 @@ pub mod directory {
         P: AsRef<Path>,
         F: FnMut(&str),
     {
-        let path_cstr = path_to_cstring(path.as_ref())?;
-
-        unsafe extern "C" fn c_callback(name: *const libc::c_char, data: *mut libc::c_void) {
-            if !name.is_null() && !data.is_null() {
-                let cstr = unsafe { std::ffi::CStr::from_ptr(name) };
-                if let Ok(name_str) = cstr.to_str() {
-                    // Cast the void pointer to a pointer-to-reference
-                    let callback_ptr = data as *mut &mut dyn FnMut(&str);
-
-                    // Turn the raw pointer into a standard Rust mutable reference
-                    //    Type becomes: &mut (&mut dyn FnMut(&str))
-                    let callback = unsafe { &mut *callback_ptr };
-
-                    // Call the closure
-                    callback(name_str);
-                }
-            }
+        let entries = list(path)?;
+        for entry in &entries {
+            callback(entry);
         }
-
-        let mut callback_trait: &mut dyn FnMut(&str) = &mut callback;
-        let callback_ptr = &mut callback_trait as *mut &mut dyn FnMut(&str) as *mut libc::c_void;
-
-        unsafe {
-            dir_list_with_callback(
-                path_cstr.as_ptr(),
-                Some(std::mem::transmute::<
-                    unsafe extern "C" fn(*const libc::c_char, *mut libc::c_void),
-                    extern "C" fn(*const libc::c_char),
-                >(c_callback)),
-            )
-        };
-
         Ok(())
     }
 
@@ -315,7 +285,6 @@ impl From<WalkDirOption> for WalkControl {
             WalkDirOption::DirContinue => WalkControl::Continue,
             WalkDirOption::DirStop => WalkControl::Stop,
             WalkDirOption::DirSkip => WalkControl::Skip,
-            WalkDirOption::DirError => WalkControl::Error,
             _ => WalkControl::Error,
         }
     }
@@ -337,6 +306,7 @@ where
     let path_cstr = path_to_cstring(path.as_ref())?;
 
     unsafe extern "C" fn c_callback(
+        _attr: *const crate::ffi::FileAttributes,
         path: *const libc::c_char,
         name: *const libc::c_char,
         data: *mut libc::c_void,
@@ -385,6 +355,7 @@ where
     let path_cstr = path_to_cstring(path.as_ref())?;
 
     unsafe extern "C" fn c_callback(
+        _attr: *const crate::ffi::FileAttributes,
         path: *const libc::c_char,
         name: *const libc::c_char,
         data: *mut libc::c_void,
