@@ -6,6 +6,29 @@ edition = "2024"
 [dependencies]
 libc = "0.2.177"
 
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
 [build-dependencies]
 bindgen = "0.72.1"
 cc = "1.0"
+
+[[bench]]
+name = "arena_bench"
+harness = false
+
+[[bench]]
+name = "string_bench"
+harness = false
+
+[[bench]]
+name = "hashmap_bench"
+harness = false
+
+[[bench]]
+name = "time_bench"
+harness = false
+
+[[bench]]
+name = "threadpool_bench"
+harness = false
